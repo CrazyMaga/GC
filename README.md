@@ -279,4 +279,127 @@ void Update()
     timerText.text = "Time:"+ timer.ToString();
 }
 ```
+通过将字符串进行分隔，我们可以剔除字符串的加操作，从而减少不必要的内存垃圾：
+
+```csharp
+public Text timerHeaderText;
+public Text timerValueText;
+private float timer;
+void Start()
+{
+    timerHeaderText.text = "TIME:";
+}
+ 
+void Update()
+{
+   timerValueText.text = timer.ToString();
+}
+```
+
+#### Unity函数调用
+
+在代码编程中，我们需要知道当我们调用不是我们自己编写的代码，无论是Unity自带的还是插件中的，我们都可能会产生内存垃圾。Unity的某些函数调用会产生内存垃圾，我们在使用的时候需要注意它的使用。
+
+这儿没有明确的列表指出哪些函数需要注意，每个函数在不同的情况下有不同的使用，所以最好仔细地分析游戏，定位内存垃圾的产生原因以及如何解决问题。有时候缓存是一种有效的办法，有时候尽量降低函数的调用频率是一种办法，有时候用其他函数来重构代码是一种办法。现在来分析unity中中常见的造成堆内存分配的函数调用。
+
+在Unity中如果函数需要返回一个数组，则一个新的数组会被分配出来用作结果返回，这不容易被注意到，特别是如果该函数含有迭代器，下面的代码中对于每个迭代器都会产生一个新的数组：
+
+```csharp
+void ExampleFunction()
+{
+    for(int i=0; i < myMesh.normals.Length;i++)
+    {
+        Vector3 normal = myMesh.normals[i];
+    }
+}
+```
+
+对于这样的问题，我们可以缓存一个数组的引用，这样只需要分配一个数组就可以实现相同的功能，从而减少内存垃圾的产生：
+
+```csharp
+void ExampleFunction()
+{
+    Vector3[] meshNormals = myMesh.normals;
+    for(int i=0; i < meshNormals.Length;i++)
+    {
+        Vector3 normal = meshNormals[i];
+    }
+}
+```
+
+此外另外的一个函数调用GameObject.name 或者 GameObject.tag也会造成预想不到的堆内存分配，这两个函数都会将结果存为新的字符串返回，这就会造成不必要的内存垃圾，对结果进行缓存是一种有效的办法，但是在Unity中都对应的有相关的函数来替代。对于比较gameObject的tag，可以采用GameObject.CompareTag()来替代。
+
+在下面的代码中，调用gameobject.tag就会产生内存垃圾：
+
+
+```csharp
+private string playerTag="Player";
+void OnTriggerEnter(Collider other)
+{
+    bool isPlayer = other.gameObject.tag ==playerTag;
+}
+```
+采用GameObject.CompareTag()可以避免内存垃圾的产生：
+
+```csharp
+private string playerTag = "Player";
+void OnTriggerEnter(Collider other)
+{
+    bool isPlayer = other.gameObject.CompareTag(playerTag);
+}
+```
+
+
+不只是GameObject.CompareTag，unity中许多其他的函数也可以避免内存垃圾的生成。比如我们可以用Input.GetTouch()和Input.touchCount()来代替Input.touches，或者用Physics.SphereCastNonAlloc()来代替Physics.SphereCastAll()。
+
+#### 装箱操作
+
+装箱操作是指一个值类型变量被用作引用类型变量时候的内部变换过程，如果我们向带有对象类型参数的函数传入值类型，这就会触发装箱操作。比如String.Format()函数需要传入字符串和对象类型参数，如果传入字符串和int类型数据，就会触发装箱操作。如下面代码所示：
+
+```csharp
+void ExampleFunction()
+{
+    int cost = 5;
+    string displayString = String.Format("Price:{0} gold",cost);
+}
+```
+
+在Unity的装箱操作中，对于值类型会在堆内存上分配一个System.Object类型的引用来封装该值类型变量，其对应的缓存就会产生内存垃圾。装箱操作是非常普遍的一种产生内存垃圾的行为，即使代码中没有直接的对变量进行装箱操作，在插件或者其他的函数中也有可能会产生。最好的解决办法是尽可能的避免或者移除造成装箱操作的代码。
+
+#### 协程
+
+调用 StartCoroutine()会产生少量的内存垃圾，因为unity会生成实体来管理协程。所以在游戏的关键时刻应该限制该函数的调用。基于此，任何在游戏关键时刻调用的协程都需要特别的注意，特别是包含延迟回调的协程。
+
+yield在协程中不会产生堆内存分配，但是如果yield带有参数返回，则会造成不必要的内存垃圾，例如：
+
+```csharp
+yield return 0;
+```
+
+由于需要返回0，引发了装箱操作，所以会产生内存垃圾。这种情况下，为了避免内存垃圾，我们可以这样返回：
+
+```csharp
+yield return null;
+```
+
+另外一种对协程的错误使用是每次返回的时候都new同一个变量，例如：
+
+
+```csharp
+while(!isComplete)
+{
+    yield return new WaitForSeconds(1f);
+}
+```
+
+我们可以采用缓存来避免这样的内存垃圾产生：
+
+```csharp
+WaitForSeconds delay = new WaiForSeconds(1f);
+while(!isComplete)
+{
+    yield return delay;
+}
+```
+
 
