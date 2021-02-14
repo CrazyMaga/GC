@@ -402,4 +402,103 @@ while(!isComplete)
 }
 ```
 
+如果游戏中的协程产生了内存垃圾，我们可以考虑用其他的方式来替代协程。重构代码对于游戏而言十分复杂，但是对于协程而言我们也可以注意一些常见的操作，比如如果用协程来管理时间，最好在update函数中保持对时间的记录。如果用协程来控制游戏中事件的发生顺序，最好对于不同事件之间有一定的信息通信的方式。对于协程而言没有适合各种情况的方法，只有根据具体的代码来选择最好的解决办法。
+
+#### foreach 循环
+
+在unity5.5以前的版本中，在foreach的迭代中都会生成内存垃圾，主要来自于其后的装箱操作。每次在foreach迭代的时候，都会在堆内存上生产一个System.Object用来实现迭代循环操作。在unity5.5中解决了这个问题，比如，在unity5.5以前的版本中，用foreach实现循环：
+
+```csharp
+void ExampleFunction(List listOfInts)
+{
+    foreach(int currentInt in listOfInts)
+    {
+        DoSomething(currentInt);
+    }
+}
+```
+
+如果游戏工程不能升级到5.5以上，则可以用for或者while循环来解决这个问题，所以可以改为：
+
+```csharp
+void ExampleFunction(List listOfInts)
+{
+    for(int i=0; i < listOfInts.Count; i++)
+    {
+        int currentInt = listOfInts[i];
+        DoSomething(currentInt);
+    }
+}
+```
+
+#### 函数引用
+
+函数的引用，无论是指向匿名函数还是显式函数，在unity中都是引用类型变量，这都会在堆内存上进行分配。匿名函数的调用完成后都会增加内存的使用和堆内存的分配。具体函数的引用和终止都取决于操作平台和编译器设置，但是如果想减少GC最好减少函数的引用。
+
+#### LINQ和常量表达式
+
+由于LINQ和常量表达式以装箱的方式实现，所以在使用的时候最好进行性能测试。
+
+### 重构代码来减小GC的影响
+
+即使我们减小了代码在堆内存上的分配操作，代码也会增加GC的工作量。最常见的增加GC工作量的方式是让其检查它不必检查的对象。struct是值类型的变量，但是如果struct中包含有引用类型的变量，那么GC就必须检测整个struct。如果这样的操作很多，那么GC的工作量就大大增加。在下面的例子中struct包含一个string，那么整个struct都必须在GC中被检查：
+
+```csharp
+public struct ItemData
+{
+    public string name;
+    public int cost;
+    public Vector3 position;
+}
+private ItemData[] itemData;
+```
+
+我们可以将该struct拆分为多个数组的形式，从而减小GC的工作量：
+
+```csharp
+private string[] itemNames;
+private int[] itemCosts;
+private Vector3[] itemPositions;
+```
+
+另外一种在代码中增加GC工作量的方式是保存不必要的Object引用，在进行GC操作的时候会对堆内存上的object引用进行检查，越少的引用就意味着越少的检查工作量。在下面的例子中，当前的对话框中包含一个对下一个对话框引用，这就使得GC的时候回去检查下一个对象框：
+
+```csharp
+public class DialogData
+{
+     private DialogData nextDialog;
+     public DialogData GetNextDialog()
+     {
+           return nextDialog;   
+     }
+}
+```
+
+通过重构代码，我们可以返回下一个对话框实体的标记，而不是对话框实体本身，这样就没有多余的object引用，从而减少GC的工作量：
+
+
+```csharp
+public class DialogData
+{
+    private int nextDialogID;
+    public int GetNextDialogID()
+    {
+       return nextDialogID;
+    }
+}
+```
+
+当然这个例子本身并不重要，但是如果我们的游戏中包含大量的含有对其他Object引用的object，我们可以考虑通过重构代码来减少GC的工作量。
+
+### 定时执行GC操作
+
+####主动调用GC操作
+
+如果我们知道堆内存在被分配后并没有被使用，我们希望可以主动地调用GC操作，或者在GC操作并不影响游戏体验的时候（例如场景切换的时候），我们可以主动的调用GC操作：
+
+```csharp
+System.GC.Collect()
+```
+
+通过主动的调用，我们可以主动驱使GC操作来回收堆内存。
 
