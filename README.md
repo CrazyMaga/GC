@@ -134,4 +134,149 @@ void ExampleFunction()
 
 ### 减少内存垃圾的数量
 
+减少内存垃圾主要可以通过一些方法来减少：
+
+####  缓存
+
+如果在代码中反复调用某些造成堆内存分配的函数但是其返回结果并没有使用，这就会造成不必要的内存垃圾，我们可以缓存这些变量来重复利用，这就是缓存。
+
+例如下面的代码每次调用的时候就会造成堆内存分配，主要是每次都会分配一个新的数组：
+
+```csharp
+void OnTriggerEnter(Collider other)
+{
+     Renderer[] allRenderers = FindObjectsOfType<Renderer>();
+     ExampleFunction(allRenderers);      
+}
+```
+
+对比下面的代码，只会生产一个数组用来缓存数据，实现反复利用而不需要造成更多的内存垃圾：
+
+```csharp
+private Renderer[] allRenderers;
+ 
+void Start()
+{
+    allRenderers = FindObjectsOfType<Renderer>();
+}
+ 
+void OnTriggerEnter(Collider other)
+{
+    ExampleFunction(allRenderers);
+}
+```
+
+#### 不要在频繁调用的函数中反复进行堆内存分配
+
+在MonoBehaviour中，如果我们需要进行堆内存分配，最坏的情况就是在其反复调用的函数中进行堆内存分配，例如Update()和LateUpdate()函数这种每帧都调用的函数，这会造成大量的内存垃圾。我们可以考虑在Start()或者Awake()函数中进行内存分配，这样可以减少内存垃圾。
+
+下面的例子中，update函数会多次触发内存垃圾的产生：
+
+```csharp
+void Update()
+{
+    ExampleGarbageGenerationFunction(transform.position.x);
+}
+```
+通过一个简单的改变，我们可以确保每次在x改变的时候才触发函数调用，这样避免每帧都进行堆内存分配：
+
+```csharp
+private float previousTransformPositionX;
+
+void Update()
+{
+    float transformPositionX = transform.position.x;
+    if(transfromPositionX != previousTransformPositionX)
+    {
+        ExampleGarbageGenerationFunction(transformPositionX);    
+        previousTransformPositionX = trasnformPositionX;
+    }
+}
+```
+
+另外的一种方法是在update中采用计时器，特别是在运行有规律但是不需要每帧都运行的代码中，例如：
+
+```csharp
+void Update()
+{
+    ExampleGarbageGeneratiingFunction()
+}
+```
+
+通过添加一个计时器，我们可以确保每隔1s才触发该函数一次：
+
+```csharp
+private float timeSinceLastCalled;
+private float delay = 1f;
+void Update()
+{
+    timSinceLastCalled += Time.deltaTime;
+    if(timeSinceLastCalled > delay)
+    {
+         ExampleGarbageGenerationFunction();
+         timeSinceLastCalled = 0f;
+    }
+}
+```
+通过这样细小的改变，我们可以使得代码运行的更快同时减少内存垃圾的产生。
+
+#### 清除链表
+
+在堆内存上进行链表的分配的时候，如果该链表需要多次反复的分配，我们可以采用链表的clear函数来清空链表从而替代反复多次的创建分配链表。
+
+```csharp
+void Update()
+{
+    List myList = new List();
+    PopulateList(myList);       
+}
+```
+
+通过改进，我们可以将该链表只在第一次创建或者该链表必须重新设置的时候才进行堆内存分配，从而大大减少内存垃圾的产生：
+
+```csharp
+private List myList = new List();
+void Update()
+{
+    myList.Clear();
+    PopulateList(myList);
+}
+```
+
+#### 对象池
+
+即便我们在代码中尽可能地减少堆内存的分配行为，但是如果游戏有大量的对象需要产生和销毁依然会造成GC。对象池技术可以通过重复使用objects来降低堆内存的分配和回收频率。对象池在游戏中广泛的使用，特别是在游戏中需要频繁的创建和销毁相同的游戏对象的时候，例如枪的子弹。
+
+
+### 造成不必要的堆内存分配的因素
+
+我们已经知道值类型变量在堆栈上分配，其他的变量在堆内存上分配，但是任然有一些情况下的堆内存分配会让我们感到吃惊。下面让我们分析一些常见的不必要的堆内存分配行为并对其进行优化。
+
+#### 字符串
+
+在c#中，字符串是引用类型变量而不是值类型变量，即使看起来它是存储字符串的值的。这就意味着字符串会造成一定的内存垃圾，由于代码中经常使用字符串，所以我们需要对其格外小心。
+
+c#中的字符串是不可变更的，也就是说其内部的值在创建后是不可被变更的。每次在对字符串进行操作的时候（例如运用字符串的“加”操作），unity会新建一个字符串用来存储新的字符串，使得旧的字符串被废弃，这样就会造成内存垃圾。
+
+我们可以采用以下的一些方法来最小化字符串的影响：
+
+1、减少不必要的字符串的创建，如果一个字符串被多次利用，我们可以创建并缓存该字符串。
+
+2、减少不必要的字符串操作，例如如果在Text组件中，有一部分字符串需要经常改变，但是其他部分不会，则我们可以将其分为两个部分的组件。
+
+3、如果我们需要实时的创建字符串，我们可以采用StringBuilderClass来代替，StringBuilder专为不需要进行内存分配而设计，从而减少字符串产生的内存垃圾。
+
+4、移除游戏中的Debug.Log()函数的代码，尽管该函数可能输出为空，对该函数的调用依然会执行，该函数会创建至少一个字符（空字符）的字符串。如果游戏中有大量的该函数的调用，这会造成内存垃圾的增加。
+
+在下面的代码中，在Update函数中会进行一个string的操作，这样的操作就会造成不必要的内存垃圾：
+
+```csharp
+public Text timerText;
+private float timer;
+void Update()
+{
+    timer += Time.deltaTime;
+    timerText.text = "Time:"+ timer.ToString();
+}
+```
 
