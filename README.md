@@ -1,5 +1,4 @@
 # GC
-# Unity中的GC以及优化
 ## Unity GC分析及优化
 ### 介绍
 <td style="text-align: center">
